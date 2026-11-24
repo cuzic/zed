@@ -13,6 +13,7 @@ mod display;
 mod events;
 mod foreground_input;
 mod keyboard;
+mod ime_compare;
 mod platform;
 mod system_notifications;
 mod system_settings;

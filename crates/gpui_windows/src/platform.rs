@@ -581,6 +581,7 @@ impl Platform for WindowsPlatform {
         let mut msg = MSG::default();
         unsafe {
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                crate::ime_compare::dispatch("main", &msg);
                 if !self.inner.translate_accelerator(&msg) {
                     _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
@@ -1319,6 +1320,7 @@ impl WindowsPlatformInner {
                     // if we don't we might not for example process window quit events
                     let mut msg = MSG::default();
                     let process_message = |msg: &_| {
+                        crate::ime_compare::dispatch("foreground", msg);
                         if !self.translate_accelerator(msg) {
                             _ = unsafe { TranslateMessage(msg) };
                             unsafe { DispatchMessageW(msg) };

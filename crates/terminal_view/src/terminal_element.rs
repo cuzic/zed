@@ -1814,7 +1814,15 @@ impl InputHandler for TerminalInputHandler {
         window: &mut Window,
         cx: &mut App,
     ) {
-        if self.terminal_view.read(cx).is_read_only() {
+        let read_only = self.terminal_view.read(cx).is_read_only();
+        if std::env::var_os("GPUI_IME_COMPARE").is_some() {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            eprintln!("[ime-compare] ns={timestamp} terminal bytes={} blocked={read_only}", text.len());
+        }
+        if read_only {
             return;
         }
         self.terminal_view.update(cx, |view, view_cx| {

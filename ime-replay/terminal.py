@@ -55,7 +55,9 @@ def replay(exe, out, lines, phrase, batch_count, output_load):
     profile = out / "zed-user-data"
     env = os.environ.copy()
     env["ZED_LOG"] = "info,gpui_windows::platform=debug"
-    proc = subprocess.Popen([exe, "--user-data-dir", profile, text_file], env=env)
+    env["GPUI_IME_COMPARE"] = "1"
+    with (out / "zed.stderr").open("wb") as stderr:
+        proc = subprocess.Popen([exe, "--user-data-dir", profile, text_file], env=env, stderr=stderr)
     stop_resize = Event()
     resize_thread = None
 
@@ -187,6 +189,7 @@ def replay(exe, out, lines, phrase, batch_count, output_load):
         for label, explicit, gap, mode in cases:
             tap(0xF2)
             time.sleep(.12)
+            print(f"trial {label} ns={time.time_ns()}", flush=True)
             send(keys(prefix))
             time.sleep(.18)
             send([(0x20, 0, 0)])

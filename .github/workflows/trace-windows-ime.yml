@@ -1,0 +1,68 @@
+name: Trace Zed Windows IME
+on:
+  push:
+    branches: [diagnose/windows-ime-trace]
+permissions:
+  contents: read
+jobs:
+  trace:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare Rust
+        run: rustup toolchain install 1.100.0 --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: zed-ime-deps-windows-2022-${{ hashFiles('Cargo.lock') }}
+      - name: Build traced Zed
+        run: |
+          cargo +1.100.0 build --locked -p zed --bin zed --config 'profile.dev.package.gpui_windows.debug-assertions=false'
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traced-zed-exe
+          path: target/debug/zed.exe
+          retention-days: 7
+      - name: Install Mozc Readable
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./ime-replay/install-mozc.ps1 -Tag v3.35.6354-readable.1 -OutDir "$env:RUNNER_TEMP/mozc"
+      - name: Replay the same commits in the editor and terminal
+        shell: cmd
+        run: |
+          python ime-replay/editor.py target/debug/zed.exe "%RUNNER_TEMP%/editor" --lines 40000 --rounds 2 > "%RUNNER_TEMP%/editor-replay.log" 2>&1
+          set editor_status=%ERRORLEVEL%
+          python ime-replay/terminal.py target/debug/zed.exe "%RUNNER_TEMP%/terminal" --lines 40000 --rounds 2 > "%RUNNER_TEMP%/terminal-replay.log" 2>&1
+          set terminal_status=%ERRORLEVEL%
+          type "%RUNNER_TEMP%/editor-replay.log"
+          type "%RUNNER_TEMP%/terminal-replay.log"
+          if not "%editor_status%"=="0" exit /b %editor_status%
+          exit /b %terminal_status%
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zed-ime-comparison
+          path: |
+            ${{ runner.temp }}/editor-replay.log
+            ${{ runner.temp }}/terminal-replay.log
+            ${{ runner.temp }}/editor/zed.stderr
+            ${{ runner.temp }}/terminal/zed.stderr
+            ${{ runner.temp }}/editor/results.json
+            ${{ runner.temp }}/terminal/results.json

@@ -728,6 +728,7 @@ impl WindowsWindowInner {
 
     fn handle_ime_composition_inner(&self, ctx: HIMC, lparam: LPARAM) -> Option<isize> {
         let lparam = lparam.0 as u32;
+        crate::ime_compare::record("composition", format_args!("flags={lparam:#x}"));
         if lparam == 0 {
             // Japanese IME may send this message with lparam = 0, which indicates that
             // there is no composition string.
@@ -738,10 +739,12 @@ impl WindowsWindowInner {
         } else {
             if lparam & GCS_RESULTSTR.0 > 0 {
                 let comp_result = parse_ime_composition_string(ctx, GCS_RESULTSTR)?;
-                self.with_input_handler(|input_handler| {
+                let delivered = self.with_input_handler(|input_handler| {
                     input_handler
                         .replace_text_in_range(None, &String::from_utf16_lossy(&comp_result));
-                })?;
+                });
+                crate::ime_compare::record("commit", format_args!("utf16={} handler={}", comp_result.len(), delivered.is_some()));
+                delivered?;
             }
             if lparam & GCS_COMPSTR.0 > 0 {
                 let comp_string = parse_ime_composition_string(ctx, GCS_COMPSTR)?;
@@ -1729,14 +1732,16 @@ fn process_key(vkey: VIRTUAL_KEY, scan_code: u16) -> (Option<String>, bool) {
 fn parse_ime_composition_string(ctx: HIMC, comp_type: IME_COMPOSITION_STRING) -> Option<Vec<u16>> {
     unsafe {
         let string_len = ImmGetCompositionStringW(ctx, comp_type, None, 0);
+        crate::ime_compare::record("imm-size", format_args!("kind={} bytes={string_len}", comp_type.0));
         if string_len >= 0 {
             let mut buffer = vec![0u8; string_len as usize + 2];
-            ImmGetCompositionStringW(
+            let copied = ImmGetCompositionStringW(
                 ctx,
                 comp_type,
                 Some(buffer.as_mut_ptr() as _),
                 string_len as _,
             );
+            crate::ime_compare::record("imm-copy", format_args!("kind={} bytes={copied}", comp_type.0));
             let wstring = std::slice::from_raw_parts::<u16>(
                 buffer.as_mut_ptr().cast::<u16>(),
                 string_len as usize / 2,
