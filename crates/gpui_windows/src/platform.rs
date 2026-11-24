@@ -1332,10 +1332,16 @@ impl WindowsPlatformInner {
                     if peek_msg(&mut msg, PM_QS_PAINT) {
                         process_message(&msg);
                     }
-                    crate::foreground_input::drain_foreground_input(
-                        |ime_only| {
-                            let found = if ime_only {
-                                unsafe {
+                    use crate::foreground_input::{ForegroundMessageKind, drain_foreground_input};
+
+                    let mut quit_pending = false;
+                    drain_foreground_input(
+                        |kind| {
+                            if quit_pending {
+                                return None;
+                            }
+                            let found = match kind {
+                                ForegroundMessageKind::Ime => unsafe {
                                     PeekMessageW(
                                         &mut msg,
                                         None,
@@ -1344,14 +1350,23 @@ impl WindowsPlatformInner {
                                         PM_REMOVE,
                                     )
                                     .as_bool()
-                                }
-                            } else {
-                                peek_msg(&mut msg, PM_QS_INPUT)
+                                },
+                                ForegroundMessageKind::Input => peek_msg(&mut msg, PM_QS_INPUT),
                             };
+                            if found && msg.message == WM_QUIT {
+                                // PeekMessage can return WM_QUIT despite a filter.
+                                // Leave it for the outer GetMessage loop.
+                                unsafe { PostQuitMessage(msg.wParam.0 as i32) };
+                                quit_pending = true;
+                                return None;
+                            }
                             found.then_some(msg)
                         },
                         |message| process_message(&message),
                     );
+                    if quit_pending {
+                        return Some(0);
+                    }
                     // Allow the main loop to process other gpui events before going back into `run_foreground_task`
                     unsafe {
                         if let Err(_) = PostMessageW(

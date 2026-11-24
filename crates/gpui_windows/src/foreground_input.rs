@@ -1,10 +1,23 @@
-/// Drain the foreground queue without waiting. The peek callback selects
-/// keyboard/mouse input when its argument is false and IME messages when true.
+pub(crate) enum ForegroundMessageKind {
+    Ime,
+    Input,
+}
+
+/// Drain foreground input while keeping IME notifications ahead of the next key.
 pub(crate) fn drain_foreground_input<T>(
-    mut peek: impl FnMut(bool) -> Option<T>,
+    mut peek: impl FnMut(ForegroundMessageKind) -> Option<T>,
     mut dispatch: impl FnMut(T),
 ) {
-    while let Some(message) = peek(false) {
+    loop {
+        // A key can queue a composition result. Process it before retrieving
+        // another key because that key can overwrite the IMM result string.
+        while let Some(message) = peek(ForegroundMessageKind::Ime) {
+            dispatch(message);
+        }
+
+        let Some(message) = peek(ForegroundMessageKind::Input) else {
+            break;
+        };
         dispatch(message);
     }
 }
@@ -14,7 +27,7 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
 
-    use super::drain_foreground_input;
+    use super::{ForegroundMessageKind, drain_foreground_input};
 
     #[test]
     fn dispatches_ime_commit_before_the_next_key() {
@@ -33,7 +46,8 @@ mod tests {
         let delivered = Cell::new(None);
 
         drain_foreground_input(
-            |ime_only| {
+            |kind| {
+                let ime_only = matches!(kind, ForegroundMessageKind::Ime);
                 let mut queue = queue.borrow_mut();
                 let index = queue
                     .iter()
