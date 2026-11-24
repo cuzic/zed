@@ -1,0 +1,56 @@
+name: Windows Zed IME replay
+on:
+  push:
+    branches: [verify/windows-zed-ime-replay]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [editor, terminal]
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ime-replay
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Mozc Readable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./ime-replay/install-mozc.ps1 -Tag v3.35.6354-readable.1 -OutDir "$env:RUNNER_TEMP/mozc-readable-msi"
+      - name: Install official Zed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v1.29.3 -R zed-industries/zed -p Zed-x86_64.exe -D $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = Join-Path $env:RUNNER_TEMP Zed-x86_64.exe
+          if ((Get-FileHash $installer).Hash -ne 'f857495c6cdc4d74fb9bcda9ff5a23aebe1cc88e7aa10af13cfde5f45232b554') {
+            throw 'Zed installer checksum mismatch'
+          }
+          $params = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS="" /DIR="{0}\zed-ime"' -f $env:RUNNER_TEMP
+          $process = Start-Process $installer -ArgumentList $params -Wait -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+      - name: Replay without moving focus
+        run: |
+          python ime-replay/${{ matrix.target }}.py "$env:RUNNER_TEMP/zed-ime/Zed.exe" "$env:RUNNER_TEMP/result" --lines 40000 --rounds 2
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zed-ime-${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/result/results.json
+            ${{ runner.temp }}/result/pty.jsonl
+            ${{ runner.temp }}/result/zed-user-data/logs/Zed.log
+          if-no-files-found: ignore
