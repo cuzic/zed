@@ -1,8 +1,14 @@
 name: Windows Zed IME replay
+run-name: Replay Zed ${{ inputs.zed_version || 'v1.25.3' }} on Windows
 on:
   push:
     branches: [verify/windows-zed-ime-replay]
   workflow_dispatch:
+    inputs:
+      zed_version:
+        type: choice
+        options: [v1.25.3, v1.29.3]
+        default: v1.25.3
 permissions:
   contents: read
 jobs:
@@ -31,11 +37,16 @@ jobs:
       - name: Install official Zed
         env:
           GH_TOKEN: ${{ github.token }}
+          ZED_TAG: ${{ inputs.zed_version || 'v1.25.3' }}
         run: |
-          gh release download v1.29.3 -R zed-industries/zed -p Zed-x86_64.exe -D $env:RUNNER_TEMP
+          gh release download $env:ZED_TAG -R zed-industries/zed -p Zed-x86_64.exe -D $env:RUNNER_TEMP
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $installer = Join-Path $env:RUNNER_TEMP Zed-x86_64.exe
-          if ((Get-FileHash $installer).Hash -ne 'f857495c6cdc4d74fb9bcda9ff5a23aebe1cc88e7aa10af13cfde5f45232b554') {
+          $hashes = @{
+            'v1.25.3' = 'f0188d5e8144caf82f0e2c80914527c0b0f4c6d75121c2a6bacb332c65054704'
+            'v1.29.3' = 'f857495c6cdc4d74fb9bcda9ff5a23aebe1cc88e7aa10af13cfde5f45232b554'
+          }
+          if ((Get-FileHash $installer).Hash -ne $hashes[$env:ZED_TAG]) {
             throw 'Zed installer checksum mismatch'
           }
           $params = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TASKS="" /DIR="{0}\zed-ime"' -f $env:RUNNER_TEMP
