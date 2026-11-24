@@ -1,7 +1,7 @@
-name: Trace Zed Windows IME
+name: Trace Zed Windows IME timing
 on:
   push:
-    branches: [diagnose/windows-ime-trace]
+    branches: [diagnose/windows-ime-timing]
 permissions:
   contents: read
 jobs:
@@ -44,25 +44,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./ime-replay/install-mozc.ps1 -Tag v3.35.6354-readable.1 -OutDir "$env:RUNNER_TEMP/mozc"
-      - name: Replay the same commits in the editor and terminal
+      - name: Replay timed commits
         shell: cmd
         run: |
-          python ime-replay/editor.py target/debug/zed.exe "%RUNNER_TEMP%/editor" --lines 40000 --rounds 2 > "%RUNNER_TEMP%/editor-replay.log" 2>&1
-          set editor_status=%ERRORLEVEL%
-          python ime-replay/terminal.py target/debug/zed.exe "%RUNNER_TEMP%/terminal" --lines 40000 --rounds 2 > "%RUNNER_TEMP%/terminal-replay.log" 2>&1
+          python ime-replay/terminal.py target/debug/zed.exe "%RUNNER_TEMP%/terminal" --lines 40000 > "%RUNNER_TEMP%/terminal-replay.log" 2>&1
           set terminal_status=%ERRORLEVEL%
-          type "%RUNNER_TEMP%/editor-replay.log"
           type "%RUNNER_TEMP%/terminal-replay.log"
-          if not "%editor_status%"=="0" exit /b %editor_status%
           exit /b %terminal_status%
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: zed-ime-comparison
           path: |
-            ${{ runner.temp }}/editor-replay.log
             ${{ runner.temp }}/terminal-replay.log
-            ${{ runner.temp }}/editor/zed.stderr
             ${{ runner.temp }}/terminal/zed.stderr
-            ${{ runner.temp }}/editor/results.json
             ${{ runner.temp }}/terminal/results.json

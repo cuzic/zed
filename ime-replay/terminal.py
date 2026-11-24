@@ -45,6 +45,7 @@ def replay(exe, out, lines, phrase, batch_count, output_load):
     user.GetClientRect.argtypes = [wt.HWND, ct.POINTER(wt.RECT)]
     user.ClientToScreen.argtypes = [wt.HWND, ct.POINTER(wt.POINT)]
     user.SetCursorPos.argtypes = [ct.c_int, ct.c_int]
+    user.PostMessageW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
     user.SendInput.argtypes = [wt.UINT, ct.POINTER(Input), ct.c_int]
     callback_type = ct.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
     user.EnumWindows.argtypes = [callback_type, wt.LPARAM]
@@ -56,6 +57,7 @@ def replay(exe, out, lines, phrase, batch_count, output_load):
     env = os.environ.copy()
     env["ZED_LOG"] = "info,gpui_windows::platform=debug"
     env["GPUI_IME_COMPARE"] = "1"
+    env["GPUI_IME_TIMING_PROBE"] = "1"
     with (out / "zed.stderr").open("wb") as stderr:
         proc = subprocess.Popen([exe, "--user-data-dir", profile, text_file], env=env, stderr=stderr)
     stop_resize = Event()
@@ -173,47 +175,38 @@ def replay(exe, out, lines, phrase, batch_count, output_load):
         resize_thread = Thread(target=resize)
         resize_thread.start()
         results = []
-        prefix, suffix, expected, tail = {
-            "ima": ("IMA", "DOUIU", "今どういう", "どういう"),
-            "kansha": ("KANSYA", "WA-KU", "感謝わーく", "わーく"),
-        }[phrase]
-        modes = ("interleaved", "chords", "held-space", "space-batch")
-        cases = [("control", True, 160, "interleaved")] + [
-            (f"{mode}-{gap}-{attempt}", False, gap, mode)
-            for attempt in range(batch_count) for mode in modes for gap in (0, 4, 16)
+        expected, tail = "今どういう", "どういう"
+        timeline = [(0, "I"), (249, "MA"), (498, 0x20), (560, -0x20),
+                    (743, "DO"), (988, "U"), (1095, "I"), (1191, "U"),
+                    (1490, 0x0D), (1550, -0x0D)]
+        cases = [("control", True, 183)] + [
+            (f"ima-{gap}-{attempt}", False, gap)
+            for gap in (10, 183, 350) for attempt in range(4)
         ]
-        def keys(text):
-            return [event for key in text for event in ((ord(key) if key != "-" else 0xBD, 0, 0),
-                                                        (ord(key) if key != "-" else 0xBD, 0, 2))]
-
-        for label, explicit, gap, mode in cases:
-            tap(0xF2)
-            time.sleep(.12)
+        for label, explicit, gap in cases:
             print(f"trial {label} ns={time.time_ns()}", flush=True)
-            send(keys(prefix))
-            time.sleep(.18)
-            send([(0x20, 0, 0)])
-            time.sleep(.05)
-            if mode == "space-batch":
-                send([(0x20, 0, 2)] + keys(suffix))
-            else:
-                if mode != "held-space":
-                    send([(0x20, 0, 2)])
-                if explicit:
-                    time.sleep(.12)
-                    tap(0x0D)
-                if gap:
-                    time.sleep(gap / 1000)
-                if mode == "chords":
-                    send([(ord(key) if key != "-" else 0xBD, 0, flags)
-                          for flags in (0, 2) for key in suffix])
+            tap(0xF2)
+            time.sleep(.15)
+            start = time.perf_counter()
+            for offset, event in timeline:
+                if offset >= 743:
+                    offset += gap - 183
+                time.sleep(max(0, start + offset / 1000 - time.perf_counter()))
+                if offset == 560 + gap:
+                    handle = user.GetForegroundWindow()
+                    if foreground_owner() != proc.pid:
+                        raise RuntimeError("INVALID: timing probe target is unfocused")
+                    if not user.PostMessageW(handle, 0, 0x494D4550, 0):
+                        raise ct.WinError(ct.get_last_error())
+                    time.sleep(.012)
+                if isinstance(event, str):
+                    send([(ord(key), 0, flags) for flags in (0, 2) for key in event])
                 else:
-                    send(keys(suffix))
-                if mode == "held-space":
-                    send([(0x20, 0, 2)])
-            time.sleep(.3)
+                    send([(abs(event), 0, 2 if event < 0 else 0)])
+                    if event == -0x20 and explicit:
+                        tap(0x0D)
+            time.sleep(.15)
             tap(0x0D)
-            time.sleep(.4)
             for attempt in range(100):
                 recorded = capture.read_text(encoding="utf-8").splitlines()
                 if len(recorded) > len(results):

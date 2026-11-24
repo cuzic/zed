@@ -581,6 +581,13 @@ impl Platform for WindowsPlatform {
         let mut msg = MSG::default();
         unsafe {
             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                if msg.message == WM_NULL
+                    && msg.wParam.0 == 0x494d4550
+                    && std::env::var_os("GPUI_IME_TIMING_PROBE").is_some()
+                {
+                    self.inner.run_foreground_task(true);
+                    continue;
+                }
                 crate::ime_compare::dispatch("main", &msg);
                 if !self.inner.translate_accelerator(&msg) {
                     _ = TranslateMessage(&msg);
@@ -1241,7 +1248,7 @@ impl WindowsPlatformInner {
                 self.close_one_window(HWND(lparam.0 as _));
                 Some(0)
             }
-            WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD => self.run_foreground_task(),
+            WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD => self.run_foreground_task(false),
             WM_GPUI_DOCK_MENU_ACTION => self.handle_dock_action_event(lparam.0 as _),
             WM_GPUI_KEYBOARD_LAYOUT_CHANGED => self.handle_keyboard_layout_change(),
             WM_GPUI_DISPLAYS_CHANGED => self.handle_displays_changed(),
@@ -1307,10 +1314,14 @@ impl WindowsPlatformInner {
     }
 
     #[inline]
-    fn run_foreground_task(&self) -> Option<isize> {
+    fn run_foreground_task(&self, timing_probe: bool) -> Option<isize> {
         const MAIN_TASK_TIMEOUT: u128 = 10;
 
         let start = std::time::Instant::now();
+        if timing_probe {
+            crate::ime_compare::record("probe", format_args!("delay_ms=64"));
+            std::thread::sleep(std::time::Duration::from_millis(64));
+        }
         'tasks: loop {
             'timeout_loop: loop {
                 if start.elapsed().as_millis() >= MAIN_TASK_TIMEOUT {
