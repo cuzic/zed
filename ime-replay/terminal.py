@@ -33,7 +33,7 @@ class Input(ct.Structure):
     _fields_ = [("type", wt.DWORD), ("data", Payload)]
 
 
-def replay(exe, out, lines, phrase, batch_count):
+def replay(exe, out, lines, phrase, batch_count, output_load):
     user = ct.WinDLL("user32", use_last_error=True)
     user.GetForegroundWindow.restype = wt.HWND
     user.GetWindowThreadProcessId.argtypes = [wt.HWND, ct.POINTER(wt.DWORD)]
@@ -143,6 +143,8 @@ def replay(exe, out, lines, phrase, batch_count):
         receiver = Path(__file__).with_name("terminal-receiver.py")
         capture = out / "pty.jsonl"
         command = f"& '{sys.executable}' '{receiver}' '{capture}'"
+        if output_load:
+            command += " --output-load"
         send([(0, ord(c), flags) for c in command for flags in (4, 6)])
         tap(0x0D)
         for _ in range(100):
@@ -253,5 +255,6 @@ if __name__ == "__main__":
     parser.add_argument("--lines", type=int, default=0)
     parser.add_argument("--phrase", choices=("ima", "kansha"), default="ima")
     parser.add_argument("--rounds", type=int, default=2)
+    parser.add_argument("--output-load", action="store_true")
     args = parser.parse_args()
-    replay(args.zed.resolve(), args.output.resolve(), args.lines, args.phrase, args.rounds)
+    replay(args.zed.resolve(), args.output.resolve(), args.lines, args.phrase, args.rounds, args.output_load)

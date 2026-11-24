@@ -1,5 +1,5 @@
 name: Windows Zed IME replay
-run-name: Replay Zed ${{ inputs.zed_version || 'v1.25.3' }} on Windows
+run-name: Replay Zed ${{ inputs.zed_version || 'v1.29.3' }} on Windows
 on:
   push:
     branches: [verify/windows-zed-ime-replay]
@@ -8,7 +8,7 @@ on:
       zed_version:
         type: choice
         options: [v1.25.3, v1.29.3]
-        default: v1.25.3
+        default: v1.29.3
 permissions:
   contents: read
 jobs:
@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [editor, terminal]
+        target: [terminal-output]
     defaults:
       run:
         shell: powershell
@@ -37,7 +37,7 @@ jobs:
       - name: Install official Zed
         env:
           GH_TOKEN: ${{ github.token }}
-          ZED_TAG: ${{ inputs.zed_version || 'v1.25.3' }}
+          ZED_TAG: ${{ inputs.zed_version || 'v1.29.3' }}
         run: |
           gh release download $env:ZED_TAG -R zed-industries/zed -p Zed-x86_64.exe -D $env:RUNNER_TEMP
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -54,7 +54,7 @@ jobs:
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
       - name: Replay without moving focus
         run: |
-          python ime-replay/${{ matrix.target }}.py "$env:RUNNER_TEMP/zed-ime/Zed.exe" "$env:RUNNER_TEMP/result" --lines 40000 --rounds 2
+          python ime-replay/terminal.py "$env:RUNNER_TEMP/zed-ime/Zed.exe" "$env:RUNNER_TEMP/result" --lines 40000 --rounds 3 --output-load
           exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         if: always()
