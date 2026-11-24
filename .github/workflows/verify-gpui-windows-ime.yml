@@ -1,0 +1,52 @@
+name: Verify GPUI Windows IME commit ordering
+on:
+  push:
+    branches: [verify/windows-ime-commit-order]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: baseline
+            ref: b670176
+          - variant: fixed
+            ref: '44632ba'
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 5
+          persist-credentials: false
+      - name: Select the source revision
+        shell: bash
+        run: git checkout --detach ${{ matrix.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare Rust and inspect build disk
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name,Used,Free
+      - name: Run the GPUI Windows regression test
+        if: matrix.variant == 'fixed'
+        run: cargo +1.100.0 test --locked -p gpui_windows --lib dispatches_ime_commit_before_the_next_key
+      - name: Build Zed
+        run: |
+          cargo +1.100.0 build --locked -p zed --bin zed --config 'profile.dev.package.gpui_windows.debug-assertions=false'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item target/debug/zed.exe | Select-Object Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zed-windows-${{ matrix.variant }}
+          path: target/debug/zed.exe
+          if-no-files-found: error
+          retention-days: 7
