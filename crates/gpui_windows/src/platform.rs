@@ -1332,9 +1332,26 @@ impl WindowsPlatformInner {
                     if peek_msg(&mut msg, PM_QS_PAINT) {
                         process_message(&msg);
                     }
-                    while peek_msg(&mut msg, PM_QS_INPUT) {
-                        process_message(&msg);
-                    }
+                    crate::foreground_input::drain_foreground_input(
+                        |ime_only| {
+                            let found = if ime_only {
+                                unsafe {
+                                    PeekMessageW(
+                                        &mut msg,
+                                        None,
+                                        WM_IME_STARTCOMPOSITION,
+                                        WM_IME_COMPOSITION,
+                                        PM_REMOVE,
+                                    )
+                                    .as_bool()
+                                }
+                            } else {
+                                peek_msg(&mut msg, PM_QS_INPUT)
+                            };
+                            found.then_some(msg)
+                        },
+                        |message| process_message(&message),
+                    );
                     // Allow the main loop to process other gpui events before going back into `run_foreground_task`
                     unsafe {
                         if let Err(_) = PostMessageW(
