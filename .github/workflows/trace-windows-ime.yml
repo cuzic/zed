@@ -1,7 +1,7 @@
 name: Trace Zed Windows IME timing
 on:
   push:
-    branches: [diagnose/windows-ime-timing]
+    branches: [diagnose/windows-ime-timing, diagnose/windows-ime-timing-ab]
 permissions:
   contents: read
 jobs:
@@ -44,18 +44,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./ime-replay/install-mozc.ps1 -Tag v3.35.6354-readable.1 -OutDir "$env:RUNNER_TEMP/mozc"
-      - name: Replay timed commits
-        shell: cmd
+      - name: Replay timed commits, upstream and IME-first drain alternating
+        shell: powershell
         run: |
-          python ime-replay/terminal.py target/debug/zed.exe "%RUNNER_TEMP%/terminal" --lines 40000 > "%RUNNER_TEMP%/terminal-replay.log" 2>&1
-          set terminal_status=%ERRORLEVEL%
-          type "%RUNNER_TEMP%/terminal-replay.log"
-          exit /b %terminal_status%
+          $summary = @()
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/ab" | Out-Null
+          foreach ($round in 1..4) {
+            foreach ($order in @('upstream', 'ime-first')) {
+              $name = "$order-$round"
+              $out = Join-Path $env:RUNNER_TEMP "ab/$name"
+              $env:GPUI_IME_FOREGROUND_ORDER = $order
+              cmd /c "python ime-replay/terminal.py target/debug/zed.exe `"$out`" --lines 40000 > `"$env:RUNNER_TEMP\ab\$name.log`" 2>&1"
+              $status = $LASTEXITCODE
+              Get-Content "$env:RUNNER_TEMP/ab/$name.log"
+              $summary += "$name exit=$status " + ((Get-Content "$env:RUNNER_TEMP/ab/$name.log" | Select-String 'REPRODUCED|INVALID') -join ' | ')
+            }
+          }
+          Remove-Item Env:GPUI_IME_FOREGROUND_ORDER
+          $summary | Tee-Object "$env:RUNNER_TEMP/ab/summary.txt"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: zed-ime-comparison
+          name: zed-ime-timing-ab
           path: |
-            ${{ runner.temp }}/terminal-replay.log
-            ${{ runner.temp }}/terminal/zed.stderr
-            ${{ runner.temp }}/terminal/results.json
+            ${{ runner.temp }}/ab/*.log
+            ${{ runner.temp }}/ab/summary.txt
+            ${{ runner.temp }}/ab/*/zed.stderr
+            ${{ runner.temp }}/ab/*/results.json

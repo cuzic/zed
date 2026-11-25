@@ -11,6 +11,7 @@ mod directx_renderer;
 mod dispatcher;
 mod display;
 mod events;
+mod foreground_input;
 mod keyboard;
 mod ime_compare;
 mod platform;

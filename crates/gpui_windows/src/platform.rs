@@ -1345,8 +1345,46 @@ impl WindowsPlatformInner {
                     if peek_msg(&mut msg, PM_QS_PAINT) {
                         process_message(&msg);
                     }
-                    while peek_msg(&mut msg, PM_QS_INPUT) {
-                        process_message(&msg);
+                    if std::env::var_os("GPUI_IME_FOREGROUND_ORDER").is_some_and(|v| v == "ime-first") {
+                        // Diagnostic switch: the fix in 44632ba.
+                        crate::ime_compare::record("drain", format_args!("order=ime-first"));
+                        use crate::foreground_input::{ForegroundMessageKind, drain_foreground_input};
+                        let mut quit_pending = false;
+                        drain_foreground_input(
+                            |kind| {
+                                if quit_pending {
+                                    return None;
+                                }
+                                let found = match kind {
+                                    ForegroundMessageKind::Ime => unsafe {
+                                        PeekMessageW(
+                                            &mut msg,
+                                            None,
+                                            WM_IME_STARTCOMPOSITION,
+                                            WM_IME_COMPOSITION,
+                                            PM_REMOVE,
+                                        )
+                                        .as_bool()
+                                    },
+                                    ForegroundMessageKind::Input => peek_msg(&mut msg, PM_QS_INPUT),
+                                };
+                                if found && msg.message == WM_QUIT {
+                                    unsafe { PostQuitMessage(msg.wParam.0 as i32) };
+                                    quit_pending = true;
+                                    return None;
+                                }
+                                found.then_some(msg)
+                            },
+                            |message| process_message(&message),
+                        );
+                        if quit_pending {
+                            return Some(0);
+                        }
+                    } else {
+                        crate::ime_compare::record("drain", format_args!("order=upstream"));
+                        while peek_msg(&mut msg, PM_QS_INPUT) {
+                            process_message(&msg);
+                        }
                     }
                     // Allow the main loop to process other gpui events before going back into `run_foreground_task`
                     unsafe {
